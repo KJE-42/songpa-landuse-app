@@ -238,6 +238,7 @@ button {
 .notice p {
   margin: 4px 0 0;
   font-size: 14px;
+  white-space: pre-line;
 }
 
 .mode-toggle {

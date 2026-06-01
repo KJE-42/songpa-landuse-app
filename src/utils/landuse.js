@@ -122,15 +122,22 @@ export const SAMPLE_DATA = {
 
 export const INITIAL_VISIBLE_LANDUSES = [...LANDUSE_ORDER];
 
+export function assetPath(path) {
+  const normalized = path.replace(/^\/+/, '');
+  const base = import.meta.env.BASE_URL || '/';
+  return `${base}${normalized}`;
+}
+
 export const DATA_PATHS = {
-  boundary: '/data/songpa_boundary.geojson',
-  buildings: '/data/buildings_songpa.geojson',
-  buildingSummary: '/data/landuse_summary.csv',
-  parcels: '/data/parcels_songpa.geojson',
-  parcelSummary: '/data/parcels_landuse_summary.csv',
-  urbanFacilities: '/data/urban_facilities_songpa.geojson',
-  classificationDiagnosis: '/data/classification_diagnosis.csv',
-  unclassifiedDiagnosis: '/data/unclassified_diagnosis.csv',
+  boundary: 'data/songpa_boundary.geojson',
+  buildings: 'data/buildings_songpa.geojson',
+  buildingSummary: 'data/landuse_summary.csv',
+  parcels: 'data/parcels_songpa.geojson',
+  parcelSummary: 'data/parcels_landuse_summary.csv',
+  urbanFacilities: 'data/urban_facilities_songpa.geojson',
+  classificationDiagnosis: 'data/classification_diagnosis.csv',
+  unclassifiedDiagnosis: 'data/unclassified_diagnosis.csv',
+  zoning: 'data/zoning_songpa.geojson',
 };
 
 export const SUMMARY_SCOPE_OPTIONS = [
@@ -145,103 +152,108 @@ export const SUMMARY_SCOPE_OPTIONS = [
   { key: 'include_supporting', label: '법 기준 보조분류 포함' },
 ];
 
+const REQUIRED_KEYS = ['boundary', 'buildings', 'buildingSummary'];
+const OPTIONAL_KEYS = [
+  'parcels',
+  'parcelSummary',
+  'urbanFacilities',
+  'classificationDiagnosis',
+  'unclassifiedDiagnosis',
+  'zoning',
+];
+
 const DEFAULT_LOAD_ERROR_MESSAGE =
   '데이터 파일을 불러오지 못했습니다. public/data 폴더를 확인하세요.';
 const DEFAULT_PARCEL_FALLBACK_MESSAGE =
   '필지 데이터가 없어 건물 기반으로 표시 중입니다.';
 
 export async function loadAppData() {
-  try {
-    const results = await Promise.allSettled([
-      fetch(DATA_PATHS.boundary).then(toJson),
-      fetch(DATA_PATHS.buildings).then(toJson),
-      fetch(DATA_PATHS.buildingSummary).then(toText),
-      fetch(DATA_PATHS.parcels).then(toJson),
-      fetch(DATA_PATHS.parcelSummary).then(toText),
-      fetch(DATA_PATHS.urbanFacilities).then(toJson),
-      fetch(DATA_PATHS.classificationDiagnosis).then(toText),
-      fetch(DATA_PATHS.unclassifiedDiagnosis).then(toText),
-    ]);
+  const entries = Object.entries(DATA_PATHS);
+  const results = await Promise.allSettled(
+    entries.map(([key, path]) => fetchAsset(key, path)),
+  );
 
-    const [
-      boundaryResult,
-      buildingsResult,
-      buildingSummaryResult,
-      parcelsResult,
-      parcelSummaryResult,
-      urbanFacilitiesResult,
-      classificationDiagnosisResult,
-      unclassifiedDiagnosisResult,
-    ] = results;
+  const resolved = Object.fromEntries(
+    entries.map(([key], index) => [key, results[index]]),
+  );
 
-    const usingFallback =
-      boundaryResult.status !== 'fulfilled' ||
-      buildingsResult.status !== 'fulfilled' ||
-      buildingSummaryResult.status !== 'fulfilled';
+  const missingFiles = entries
+    .filter(([key]) => resolved[key].status !== 'fulfilled')
+    .map(([, path]) => path);
 
-    const parcelDataAvailable =
-      parcelsResult.status === 'fulfilled' && Array.isArray(parcelsResult.value?.features);
+  const requiredMissingFiles = entries
+    .filter(([key]) => REQUIRED_KEYS.includes(key) && resolved[key].status !== 'fulfilled')
+    .map(([, path]) => path);
 
-    return {
-      boundary:
-        boundaryResult.status === 'fulfilled' ? boundaryResult.value : SAMPLE_DATA.boundary,
-      buildings:
-        buildingsResult.status === 'fulfilled' ? buildingsResult.value : SAMPLE_DATA.buildings,
-      buildingSummaryRows:
-        buildingSummaryResult.status === 'fulfilled'
-          ? parseSummaryCsv(buildingSummaryResult.value)
-          : parseSummaryCsv(SAMPLE_DATA.buildingSummaryCsv),
-      parcels: parcelsResult.status === 'fulfilled' ? parcelsResult.value : SAMPLE_DATA.parcels,
-      parcelSummaryRows:
-        parcelSummaryResult.status === 'fulfilled'
-          ? parseSummaryCsv(parcelSummaryResult.value)
-          : parseSummaryCsv(SAMPLE_DATA.parcelSummaryCsv),
-      urbanFacilities:
-        urbanFacilitiesResult.status === 'fulfilled' ? urbanFacilitiesResult.value : null,
-      classificationDiagnosis:
-        classificationDiagnosisResult.status === 'fulfilled'
-          ? parseDiagnosisCsv(classificationDiagnosisResult.value)
-          : [],
-      unclassifiedDiagnosis:
-        unclassifiedDiagnosisResult.status === 'fulfilled'
-          ? parseDiagnosisCsv(unclassifiedDiagnosisResult.value)
-          : [],
-      usingFallback,
-      loadErrorMessage: usingFallback ? DEFAULT_LOAD_ERROR_MESSAGE : '',
-      parcelDataAvailable,
-      parcelFallbackMessage: parcelDataAvailable ? '' : DEFAULT_PARCEL_FALLBACK_MESSAGE,
-    };
-  } catch (error) {
-    return {
-      boundary: SAMPLE_DATA.boundary,
-      buildings: SAMPLE_DATA.buildings,
-      buildingSummaryRows: parseSummaryCsv(SAMPLE_DATA.buildingSummaryCsv),
-      parcels: SAMPLE_DATA.parcels,
-      parcelSummaryRows: parseSummaryCsv(SAMPLE_DATA.parcelSummaryCsv),
-      urbanFacilities: null,
-      classificationDiagnosis: [],
-      unclassifiedDiagnosis: [],
-      usingFallback: true,
-      loadErrorMessage: DEFAULT_LOAD_ERROR_MESSAGE,
-      parcelDataAvailable: true,
-      parcelFallbackMessage: '',
-      error,
-    };
-  }
+  const usingFallback = requiredMissingFiles.length > 0;
+  const parcelDataAvailable =
+    resolved.parcels?.status === 'fulfilled' &&
+    Array.isArray(resolved.parcels.value?.features);
+
+  return {
+    boundary:
+      resolved.boundary.status === 'fulfilled'
+        ? resolved.boundary.value
+        : SAMPLE_DATA.boundary,
+    buildings:
+      resolved.buildings.status === 'fulfilled'
+        ? resolved.buildings.value
+        : SAMPLE_DATA.buildings,
+    buildingSummaryRows:
+      resolved.buildingSummary.status === 'fulfilled'
+        ? parseSummaryCsv(resolved.buildingSummary.value)
+        : parseSummaryCsv(SAMPLE_DATA.buildingSummaryCsv),
+    parcels:
+      resolved.parcels.status === 'fulfilled' ? resolved.parcels.value : SAMPLE_DATA.parcels,
+    parcelSummaryRows:
+      resolved.parcelSummary.status === 'fulfilled'
+        ? parseSummaryCsv(resolved.parcelSummary.value)
+        : parseSummaryCsv(SAMPLE_DATA.parcelSummaryCsv),
+    urbanFacilities:
+      resolved.urbanFacilities.status === 'fulfilled' ? resolved.urbanFacilities.value : null,
+    classificationDiagnosis:
+      resolved.classificationDiagnosis.status === 'fulfilled'
+        ? parseDiagnosisCsv(resolved.classificationDiagnosis.value)
+        : [],
+    unclassifiedDiagnosis:
+      resolved.unclassifiedDiagnosis.status === 'fulfilled'
+        ? parseDiagnosisCsv(resolved.unclassifiedDiagnosis.value)
+        : [],
+    zoning:
+      resolved.zoning.status === 'fulfilled' ? resolved.zoning.value : null,
+    usingFallback,
+    missingFiles,
+    loadErrorMessage: buildLoadMessage(requiredMissingFiles),
+    parcelDataAvailable,
+    parcelFallbackMessage:
+      !parcelDataAvailable && missingFiles.includes(DATA_PATHS.parcels)
+        ? `필지 데이터가 없어 건물 기반으로 표시 중입니다. 누락 파일: ${DATA_PATHS.parcels}`
+        : parcelDataAvailable
+          ? ''
+          : DEFAULT_PARCEL_FALLBACK_MESSAGE,
+  };
 }
 
-async function toJson(response) {
+async function fetchAsset(key, path) {
+  const response = await fetch(assetPath(path));
   if (!response.ok) {
-    throw new Error(`Failed to load ${response.url}`);
+    throw new Error(`Failed to load ${path}`);
+  }
+
+  if (key.includes('Summary') || key.includes('Diagnosis')) {
+    return response.text();
   }
   return response.json();
 }
 
-async function toText(response) {
-  if (!response.ok) {
-    throw new Error(`Failed to load ${response.url}`);
+function buildLoadMessage(missingFiles) {
+  if (!missingFiles.length) {
+    return '';
   }
-  return response.text();
+  if (missingFiles.length === 1) {
+    return `데이터 파일을 불러오지 못했습니다: ${missingFiles[0]}`;
+  }
+  return `${DEFAULT_LOAD_ERROR_MESSAGE}\n누락 파일: ${missingFiles.join(', ')}`;
 }
 
 export function parseSummaryCsv(csvText) {
@@ -280,8 +292,7 @@ export function parseDiagnosisCsv(csvText) {
     .filter(Boolean)
     .map((line) => {
       const values = line.split(',').map((item) => item.trim());
-      const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
-      return row;
+      return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
     });
 }
 
@@ -309,6 +320,7 @@ export function normalizeParcels(geojson) {
         : rawPriority === '5_unclassified'
           ? '7_unclassified'
           : rawPriority;
+
     return {
       ...feature,
       properties: {
@@ -371,7 +383,11 @@ export function summarizeBuildings(buildings, visibleLanduses) {
   };
 }
 
-export function summarizeParcels(parcels, visibleLanduses, summaryScope = 'exclude_transport_water') {
+export function summarizeParcels(
+  parcels,
+  visibleLanduses,
+  summaryScope = 'exclude_transport_water',
+) {
   const filtered = filterParcelsByScope(
     parcels.filter((feature) => visibleLanduses.includes(feature.properties.landuse_group)),
     summaryScope,
@@ -473,9 +489,13 @@ function shouldIncludeParcelForSummary(feature, summaryScope) {
     return sourcePriority === '1_building_use';
   }
   if (summaryScope === 'include_supporting') {
-    return ['1_building_use', '2_jimok', '3_urban_facility', '4_zoning_support', '5_nearest_building'].includes(
-      sourcePriority,
-    );
+    return [
+      '1_building_use',
+      '2_jimok',
+      '3_urban_facility',
+      '4_zoning_support',
+      '5_nearest_building',
+    ].includes(sourcePriority);
   }
   return true;
 }
@@ -534,3 +554,4 @@ function collectCoordinates(geometry, accumulator) {
     });
   }
 }
+
