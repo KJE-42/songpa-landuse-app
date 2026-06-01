@@ -1,0 +1,11 @@
+﻿category,name,parcel_count,area_m2,ratio
+summary,전체 필지 수,31153,33825572.0,100.0
+summary,전체 필지 면적,31153,33825572.0,100.0
+summary,미분류 필지 수,11629,12377875.4,36.6
+unclassified_reason,건물 매칭 0건,11629,12377875.4,100.0
+unclassified_reason,지목 값 존재,0,0.0,0.0
+unclassified_reason,2m 이내 근접 건물 보조 적용,0,0.0,0.0
+unclassified_reason,도시계획 시설 중첩,201,0.0,0.0
+unclassified_reason,실질적 근거 없음,11629,12377875.4,100.0
+unclassified_jimok,(없음),11629,12377875.4,100.0
+unclassified_match_status,미분류,11629,12377875.4,100.0
